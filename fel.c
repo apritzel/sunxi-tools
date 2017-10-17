@@ -918,6 +918,53 @@ void aw_rmr_request(feldev_handle *dev, uint32_t entry_point, bool aarch64)
 	pr_info(" done.\n");
 }
 
+void aw_wdt_reset(feldev_handle *dev)
+{
+	soc_info_t *soc_info = dev->soc_info;
+
+	if (!soc_info->wdt_reg) {
+		pr_error("ERROR: Can't reset SoC!\n"
+			 "Watchdog address is unknown for your SoC (%s).\n",
+			 dev->soc_name);
+		return;
+	}
+
+	uint32_t arm_code_new_wdt[] = {
+		htole32(0xe59f0010), /* ldr	r0, [wdt_reg]		*/
+		htole32(0xe3a01001), /* mov	r1, #1			*/
+		htole32(0xe5801014), /* str	r1, [r0, #0x14]		*/
+		htole32(0xe5801018), /* str	r1, [r0, #0x18]		*/
+		htole32(0xe320f003), /* loop:	wfi			*/
+		htole32(0xeafffffd), /* b	<loop>			*/
+		htole32(soc_info->wdt_reg),
+	};
+	uint32_t arm_code_old_wdt[] = {
+		htole32(0xe59f000c), /* ldr     r0, [wdt_reg]           */
+		htole32(0xe3a01003), /* mov	r1, #3			*/
+		htole32(0xe5801004), /* str	r1, [r0, #0x04]		*/
+		htole32(0xe320f003), /* loop:	wfi			*/
+		htole32(0xeafffffd), /* b	<loop>			*/
+		htole32(soc_info->wdt_reg),
+	};
+	uint32_t *arm_code;
+	size_t len;
+
+	if (soc_info->has_old_wdog) {
+		arm_code = arm_code_old_wdt;
+		len = sizeof(arm_code_old_wdt);
+	} else {
+		arm_code = arm_code_new_wdt;
+		len = sizeof(arm_code_new_wdt);
+	}
+
+	/* scratch buffer setup: transfers ARM code and parameter values */
+	aw_fel_write(dev, arm_code, soc_info->scratch_addr, len);
+	/* execute the thunk code (triggering a watchdog reset on the SoC) */
+	pr_info("Triggering 500ms watchdog reset ...");
+	aw_fel_execute(dev, soc_info->scratch_addr);
+	pr_info(" done.\n");
+}
+
 /* check buffer for magic "#=uEnv", indicating uEnv.txt compatible format */
 static bool is_uEnv(void *buffer, size_t size)
 {
@@ -1026,6 +1073,7 @@ void usage(const char *cmd) {
 		"	hex[dump] address length	Dumps memory region in hex\n"
 		"	dump address length		Binary memory dump\n"
 		"	exe[cute] address		Call function address\n"
+		"	reset				reset the board\n"
 		"	reset64 address			RMR request for AArch64 warm boot\n"
 		"	memmove dest source size	Copy <size> bytes within device memory\n"
 		"	readl address			Read 32-bit value from device memory\n"
@@ -1152,6 +1200,11 @@ int main(int argc, char **argv)
 		} else if (strncmp(argv[1], "exe", 3) == 0 && argc > 2) {
 			aw_fel_execute(handle, strtoul(argv[2], NULL, 0));
 			skip=3;
+		} else if (strcmp(argv[1], "reset") == 0) {
+			aw_wdt_reset(handle);
+			/* Cancel U-Boot autostart, and stop processing args */
+			uboot_autostart = false;
+			break;
 		} else if (strcmp(argv[1], "reset64") == 0 && argc > 2) {
 			aw_rmr_request(handle, strtoul(argv[2], NULL, 0), true);
 			/* Cancel U-Boot autostart, and stop processing args */

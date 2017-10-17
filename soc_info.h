@@ -102,8 +102,10 @@ typedef struct {
 	uint32_t           sid_offset;   /* offset for SID_KEY[0-3], "root key" */
 	uint32_t           rvbar_reg;    /* MMIO address of RVBARADDR0_L register */
 	bool               sid_fix;      /* Use SID workaround (read via register) */
+	bool               has_old_wdog; /* Has an old-style, sun4i watchdog */
 	/* Use SMC workaround (enter secure mode) if can't read from this address */
 	uint32_t           needs_smc_workaround_if_zero_word_at_addr;
+	uint32_t           wdt_reg;      /* MMIO address of the watchdog for reset */
 	sram_swap_buffers *swap_buffers;
 } soc_info_t;
 
