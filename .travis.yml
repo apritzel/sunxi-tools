@@ -26,6 +26,7 @@ addons:
   apt:
     packages:
     - libusb-1.0-0-dev
+    - libfdt-dev
 
 # take care of the libusb dependency for Mac OS X; select make/install target
 before_install:
