@@ -1254,6 +1254,29 @@ static void select_by_sid(const char *sid_arg, int *busnum, int *devnum)
 	free(list);
 }
 
+#define DEFAULT_SPL_SIZE 32768
+static int spiflash_read_spl(feldev_handle *handle, uint8_t **bufptr)
+{
+	uint8_t *buf = malloc(DEFAULT_SPL_SIZE);
+	uint32_t size = DEFAULT_SPL_SIZE;
+
+	aw_fel_spiflash_read(handle, 0, buf, DEFAULT_SPL_SIZE, NULL);
+	if (!memcmp(buf + 4, "eGON.BT0", 8)) {
+		memcpy(&size, &buf[16], 4);
+		size = le32toh(size);
+		if (size > DEFAULT_SPL_SIZE) {
+			buf = realloc(buf, size);
+			aw_fel_spiflash_read(handle, DEFAULT_SPL_SIZE,
+					     buf + DEFAULT_SPL_SIZE,
+					     size - DEFAULT_SPL_SIZE, NULL);
+		}
+		buf[0x28] = 0x03;	/* BootROM SPI boot source indicator */
+	}
+	*bufptr = buf;
+
+	return size;
+}
+
 void usage(const char *cmd) {
 	puts("sunxi-fel " VERSION "\n");
 	printf("Usage: %s [options] command arguments... [command...]\n"
@@ -1490,6 +1513,11 @@ int main(int argc, char **argv)
 			save_file(argv[4], buf, size);
 			free(buf);
 			skip=4;
+		} else if (strcmp(argv[1], "spiflash-boot") == 0) {
+			uint8_t *buf;
+			int size = spiflash_read_spl(handle, &buf);
+			aw_fel_write_and_execute_spl(handle, buf, size, false);
+			free(buf);
 		} else if (strcmp(argv[1], "spiflash-write") == 0 && argc > 3) {
 			size_t size;
 			void *buf = load_file(argv[3], &size);

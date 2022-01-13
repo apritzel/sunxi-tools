@@ -602,5 +602,6 @@ void aw_fel_spiflash_help(void)
 {
 	printf("	spiflash-info			Retrieves basic information\n"
 	       "	spiflash-read addr length file	Write SPI flash contents into file\n"
-	       "	spiflash-write addr file	Store file contents into SPI flash\n");
+	       "	spiflash-write addr file	Store file contents into SPI flash\n"
+	       "	spiflash-boot			Load SPL from SPI flash and boot it\n");
 }
