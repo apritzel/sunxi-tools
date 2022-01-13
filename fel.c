@@ -1471,6 +1471,9 @@ int main(int argc, char **argv)
 		} else if (strcmp(argv[1], "spl") == 0 && argc > 2) {
 			aw_fel_process_spl_and_uboot(handle, argv[2], false);
 			skip=2;
+		} else if (strcmp(argv[1], "sram") == 0 && argc > 2) {
+			aw_fel_process_spl_and_uboot(handle, argv[2], true);
+			skip=2;
 		} else if (strcmp(argv[1], "uboot") == 0 && argc > 2) {
 			aw_fel_process_spl_and_uboot(handle, argv[2], false);
 			uboot_autostart = (uboot_entry > 0 && uboot_size > 0);
