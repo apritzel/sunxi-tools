@@ -358,6 +358,10 @@ static uint32_t fel_to_spl_thunk[] = {
 	#include "thunks/fel-to-spl-thunk.h"
 };
 
+static uint32_t fel_to_sram_thunk[] = {
+	#include "thunks/fel-to-sram-thunk.h"
+};
+
 #define	DRAM_BASE		0x40000000
 #define	DRAM_SIZE		0x80000000
 
@@ -757,36 +761,43 @@ void aw_restore_and_enable_mmu(feldev_handle *dev,
 /* Minimum offset of the main U-Boot image within u-boot-sunxi-with-spl.bin. */
 #define SPL_MIN_OFFSET 0x8000
 
-uint32_t aw_fel_write_and_execute_spl(feldev_handle *dev, uint8_t *buf, size_t len)
+uint32_t aw_fel_write_and_execute_spl(feldev_handle *dev,
+				      uint8_t *buf, size_t len, bool is_raw)
 {
 	soc_info_t *soc_info = dev->soc_info;
 	sram_swap_buffers *swap_buffers;
 	char header_signature[9] = { 0 };
-	size_t i, thunk_size;
+	size_t i, thunk_size, fel_thunk_size;
 	uint32_t *thunk_buf;
 	uint32_t sp, sp_irq;
 	uint32_t spl_checksum, spl_len, spl_len_limit;
 	uint32_t *buf32 = (uint32_t *)buf;
+	uint32_t *fel_thunk;
 	uint32_t cur_addr = soc_info->spl_addr;
 	uint32_t *tt = NULL;
 
 	if (!soc_info || !soc_info->swap_buffers)
 		pr_fatal("SPL: Unsupported SoC type\n");
-	if (len < 32 || memcmp(buf + 4, "eGON.BT0", 8) != 0)
-		pr_fatal("SPL: eGON header is not found\n");
 
-	spl_checksum = 2 * le32toh(buf32[3]) - 0x5F0A6C39;
-	spl_len = le32toh(buf32[4]);
+	if (is_raw) {
+		spl_len = len;
+	} else {
+		if (len < 32 || memcmp(buf + 4, "eGON.BT0", 8) != 0)
+			pr_fatal("SPL: eGON header is not found\n");
 
-	if (spl_len > len || (spl_len % 4) != 0)
-		pr_fatal("SPL: bad length in the eGON header\n");
+		spl_checksum = 2 * le32toh(buf32[3]) - 0x5F0A6C39;
+		spl_len = le32toh(buf32[4]);
 
-	len = spl_len;
-	for (i = 0; i < len / 4; i++)
-		spl_checksum -= le32toh(buf32[i]);
+		if (spl_len > len || (spl_len % 4) != 0)
+			pr_fatal("SPL: bad length in the eGON header\n");
 
-	if (spl_checksum != 0)
-		pr_fatal("SPL: checksum check failed\n");
+		len = spl_len;
+		for (i = 0; i < len / 4; i++)
+			spl_checksum -= le32toh(buf32[i]);
+
+		if (spl_checksum != 0)
+			pr_info("SPL: checksum check failed\n");
+	}
 
 	if (soc_info->needs_l2en) {
 		pr_info("Enabling the L2 cache\n");
@@ -857,18 +868,25 @@ uint32_t aw_fel_write_and_execute_spl(feldev_handle *dev, uint8_t *buf, size_t l
 	if (len > 0)
 		aw_fel_write(dev, buf, cur_addr, len);
 
-	thunk_size = sizeof(fel_to_spl_thunk) + sizeof(soc_info->spl_addr) +
+	if (is_raw) {
+		fel_thunk = fel_to_sram_thunk;
+		fel_thunk_size = sizeof(fel_to_sram_thunk);
+	} else {
+		fel_thunk = fel_to_spl_thunk;
+		fel_thunk_size = sizeof(fel_to_spl_thunk);
+	}
+	thunk_size = fel_thunk_size + sizeof(soc_info->spl_addr) +
 		     (i + 1) * sizeof(*swap_buffers);
 
 	if (thunk_size > soc_info->thunk_size)
 		pr_fatal("SPL: bad thunk size (need %d, have %d)\n",
-			 (int)sizeof(fel_to_spl_thunk), soc_info->thunk_size);
+			 (int)fel_thunk_size, soc_info->thunk_size);
 
 	thunk_buf = malloc(thunk_size);
-	memcpy(thunk_buf, fel_to_spl_thunk, sizeof(fel_to_spl_thunk));
-	memcpy(thunk_buf + sizeof(fel_to_spl_thunk) / sizeof(uint32_t),
+	memcpy(thunk_buf, fel_thunk, fel_thunk_size);
+	memcpy(thunk_buf + fel_thunk_size / sizeof(uint32_t),
 	       &soc_info->spl_addr, sizeof(soc_info->spl_addr));
-	memcpy(thunk_buf + sizeof(fel_to_spl_thunk) / sizeof(uint32_t) + 1,
+	memcpy(thunk_buf + fel_thunk_size / sizeof(uint32_t) + 1,
 	       swap_buffers, (i + 1) * sizeof(*swap_buffers));
 
 	for (i = 0; i < thunk_size / sizeof(uint32_t); i++)
@@ -880,6 +898,9 @@ uint32_t aw_fel_write_and_execute_spl(feldev_handle *dev, uint8_t *buf, size_t l
 	pr_info(" done.\n");
 
 	free(thunk_buf);
+
+	if (is_raw)
+		return spl_len;
 
 	/* TODO: Try to find and fix the bug, which needs this workaround */
 	struct timespec req = { .tv_nsec = 250000000 }; /* 250ms */
@@ -995,7 +1016,8 @@ static const char *spl_get_dtb_name(uint8_t *spl_buf)
 /*
  * This function handles the common part of both "spl" and "uboot" commands.
  */
-void aw_fel_process_spl_and_uboot(feldev_handle *dev, const char *filename)
+void aw_fel_process_spl_and_uboot(feldev_handle *dev, const char *filename,
+				  bool is_raw)
 {
 	size_t size;
 	uint32_t offset;
@@ -1004,7 +1026,7 @@ void aw_fel_process_spl_and_uboot(feldev_handle *dev, const char *filename)
 	const char *dt_name = spl_get_dtb_name(buf);
 
 	/* write and execute the SPL from the buffer */
-	offset = aw_fel_write_and_execute_spl(dev, buf, size);
+	offset = aw_fel_write_and_execute_spl(dev, buf, size, is_raw);
 
 	/* check for optional main U-Boot binary (and transfer it, if applicable) */
 	if (size > offset) {
@@ -1447,10 +1469,10 @@ int main(int argc, char **argv)
 			aw_fel_fill(handle, strtoul(argv[2], NULL, 0), strtoul(argv[3], NULL, 0), (unsigned char)strtoul(argv[4], NULL, 0));
 			skip=4;
 		} else if (strcmp(argv[1], "spl") == 0 && argc > 2) {
-			aw_fel_process_spl_and_uboot(handle, argv[2]);
+			aw_fel_process_spl_and_uboot(handle, argv[2], false);
 			skip=2;
 		} else if (strcmp(argv[1], "uboot") == 0 && argc > 2) {
-			aw_fel_process_spl_and_uboot(handle, argv[2]);
+			aw_fel_process_spl_and_uboot(handle, argv[2], false);
 			uboot_autostart = (uboot_entry > 0 && uboot_size > 0);
 			if (!uboot_autostart)
 				printf("Warning: \"uboot\" command failed to detect image! Can't execute U-Boot.\n");
