@@ -271,6 +271,7 @@ soc_info_t soc_info_table[] = {
 		.swap_buffers = f1c100s_sram_swap_buffers,
 		.sram_size    = 32 * 1024,
 		/* No SID */
+		.watchdog     = &wd_h3_compat,
 	},{
 		.soc_id       = 0x1673, /* Allwinner A83T */
 		.name         = "A83T",
