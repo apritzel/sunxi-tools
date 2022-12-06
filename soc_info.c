@@ -538,6 +538,18 @@ soc_info_t soc_info_table[] = {
 		.sid_sections = generic_2k_sid_maps,
 		.watchdog     = &wd_h6_compat,
 	},{
+		.soc_id       = 0x1855, /* Allwinner A133 */
+		.name         = "A133",
+		.spl_addr     = 0x20000,
+		.scratch_addr = 0x21000,
+		.thunk_addr   = 0x40800, .thunk_size = 0x200,
+		.swap_buffers = v831_sram_swap_buffers,
+		.sram_size    = 148 * 1024,
+		.sid_base     = 0x03006000,
+		.sid_offset   = 0x200,
+		.needs_smc_workaround_if_zero_word_at_addr = 0x100004,
+		.watchdog     = &wd_h6_compat,
+	},{
 		.swap_buffers = NULL /* End of the table */
 	}
 };
