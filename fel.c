@@ -574,7 +574,7 @@ void aw_set_sctlr(feldev_handle *dev, soc_info_t *soc_info,
  * This crashes on devices using "non-secure boot", as the BROM does not
  * provide a handler address in MVBAR. So we have a runtime check.
  */
-void aw_apply_smc_workaround(feldev_handle *dev)
+void aw_apply_smc_workaround(feldev_handle *dev, bool force)
 {
 	soc_info_t *soc_info = dev->soc_info;
 	uint32_t val;
@@ -583,17 +583,19 @@ void aw_apply_smc_workaround(feldev_handle *dev)
 		htole32(0xe12fff1e), /* bx	lr	*/
 	};
 
-	/* Return if the SoC does not need this workaround */
-	if (!soc_info->needs_smc_workaround_if_zero_word_at_addr)
-		return;
+	if (!force) {
+		/* Return if the SoC does not need this workaround */
+		if (!soc_info->needs_smc_workaround_if_zero_word_at_addr)
+			return;
 
-	/* This has less overhead than fel_readl_n() and may be good enough */
-	aw_fel_read(dev, soc_info->needs_smc_workaround_if_zero_word_at_addr,
-	            &val, sizeof(val));
+		/* This has less overhead than fel_readl_n() and may be good enough */
+		aw_fel_read(dev, soc_info->needs_smc_workaround_if_zero_word_at_addr,
+			    &val, sizeof(val));
 
-	/* Return if the workaround is not needed or has been already applied */
-	if (val != 0)
-		return;
+		/* Return if the workaround is not needed or has been already applied */
+		if (val != 0)
+			return;
+	}
 
 	pr_info("Applying SMC workaround... ");
 	aw_fel_write(dev, arm_code, soc_info->scratch_addr, sizeof(arm_code));
@@ -1334,6 +1336,7 @@ int main(int argc, char **argv)
 	bool uboot_autostart = false; /* flag for "uboot" command = U-Boot autostart */
 	bool pflag_active = false; /* -p switch, causing "write" to output progress */
 	bool device_list = false; /* -l switch, prints device list and exits */
+	bool secure = false; /* -s switch, force secure-boot SMC workaround */
 	feldev_handle *handle;
 	int busnum = -1, devnum = -1;
 	char *sid_arg = NULL;
@@ -1369,7 +1372,9 @@ int main(int argc, char **argv)
 			sid_arg = argv[2];
 			argc -= 1;
 			argv += 1;
-		} else
+		} else if (strcmp(argv[1], "--smc") == 0 || strcmp(argv[1], "-s") == 0)
+			secure = true;
+		else
 			break; /* no valid (prefix) option detected, exit loop */
 		argc -= 1;
 		argv += 1;
@@ -1406,7 +1411,7 @@ int main(int argc, char **argv)
 	handle = feldev_open(busnum, devnum, AW_USB_VENDOR_ID, AW_USB_PRODUCT_ID);
 
 	/* Some SoCs need the SMC workaround to enter the secure boot mode */
-	aw_apply_smc_workaround(handle);
+	aw_apply_smc_workaround(handle, secure);
 
 	/* Handle command-style arguments, in order of appearance */
 	while (argc > 1 ) {
