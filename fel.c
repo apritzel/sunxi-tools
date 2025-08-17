@@ -18,6 +18,7 @@
 #include "common.h"
 #include "portable_endian.h"
 #include "fel_lib.h"
+#include "fel-gpio.h"
 #include "fel-spiflash.h"
 #include "fit_image.h"
 
@@ -1290,6 +1291,7 @@ void usage(const char *cmd) {
 		, cmd);
 	printf("\n");
 	aw_fel_spiflash_help();
+	aw_fel_gpio_help();
 	exit(0);
 }
 
@@ -1476,6 +1478,14 @@ int main(int argc, char **argv)
 			if (!uboot_autostart)
 				printf("Warning: \"uboot\" command failed to detect image! Can't execute U-Boot.\n");
 			skip=2;
+		} else if (strcmp(argv[1], "gpio") == 0) {
+			int ret = aw_fel_handle_gpio(handle, argv[2], argv[3]);
+
+			if (ret > 0)
+				printf("%d\n", ret - 1);
+			if (ret == -2)
+				fprintf(stderr, "illegal pin \"%s\"\n", argv[3]);
+			skip = 3;
 		} else if (strcmp(argv[1], "spiflash-info") == 0) {
 			aw_fel_spiflash_info(handle);
 		} else if (strcmp(argv[1], "spiflash-read") == 0 && argc > 4) {
